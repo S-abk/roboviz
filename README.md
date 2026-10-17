@@ -1,5 +1,6 @@
 # RoboViz Atlas — Interactive Visual Encyclopedia of Robotics & AI Algorithms
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-sky.svg)](LICENSE)
 **Live Demo:** [https://s-abk.github.io/roboviz/](https://s-abk.github.io/roboviz/)
 
 **RoboViz Atlas** is an open-source, zero-backend interactive visual learning platform for foundational **Robotics** and **Artificial Intelligence** algorithms, built with **TypeScript**, **HTML5 2D Canvas**, **KaTeX**, and **Vite**.
@@ -86,3 +87,9 @@ npm run preview
 ## Architecture & Adding New Modules
 
 Every module is a pure, self-contained TypeScript file in `src/modules/<module-name>/index.ts` implementing the `AlgorithmPlugin<TState, TParams>` interface from `src/types/plugin.ts`, and registered in `src/registry/index.ts`.
+
+---
+
+## License
+
+Released under the [MIT License](LICENSE). Copyright (c) 2026 S-abk (SAO).

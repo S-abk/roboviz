@@ -2,6 +2,12 @@
   "name": "roboviz-atlas",
   "private": true,
   "version": "0.1.0",
+  "description": "Interactive visual encyclopedia of Robotics and AI algorithms",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/S-abk/roboviz.git"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
