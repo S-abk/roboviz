@@ -8,6 +8,7 @@ declare const katex: any;
 // Parameters that structurally re-initialize the simulation when changed
 const RESET_ON_CHANGE_CONTROLS: Record<string, string[]> = {
   'motion-planning-astar': ['heuristicWeight', 'allowDiagonals'],
+  'motion-planning-prm': ['connectionRadius', 'maxNeighbors'],
   'motion-planning-hybrid-astar': ['minTurnRadius', 'reversePenalty', 'heuristicWeight', 'allowReverse'],
   'perception-particle-filter': ['particleCount'],
   'perception-icp': ['shape', 'sensorNoise'],
@@ -65,6 +66,20 @@ const MODULE_PRESETS: Record<
       reset: false
     }
   ],
+  'perception-ekf-slam': [
+    {
+      label: 'High Odometry Drift + Loop Snap',
+      params: { sensorRange: 145, motionNoise: 0.11, measurementNoise: 0.06, showCorrelations: true }
+    },
+    {
+      label: 'Long-Range Multi-Landmark',
+      params: { sensorRange: 220, motionNoise: 0.04, measurementNoise: 0.06, showCorrelations: true }
+    },
+    {
+      label: 'Myopic Short-Range (R=90)',
+      params: { sensorRange: 90, motionNoise: 0.06, measurementNoise: 0.10, showCorrelations: true }
+    }
+  ],
   'perception-pose-graph-slam': [
     {
       label: 'Severe Odometry Drift',
@@ -101,6 +116,20 @@ const MODULE_PRESETS: Record<
     {
       label: 'Unoptimized Standard RRT',
       params: { stepSize: 22, goalBias: 0.08, rewireRadius: 45, enableRewiring: false }
+    }
+  ],
+  'motion-planning-prm': [
+    {
+      label: 'Dense Multi-Query Graph',
+      params: { targetNodes: 150, connectionRadius: 115, maxNeighbors: 8, obstacleInflation: 6 }
+    },
+    {
+      label: 'Sparse Roadmap (N=60)',
+      params: { targetNodes: 60, connectionRadius: 85, maxNeighbors: 4, obstacleInflation: 6 }
+    },
+    {
+      label: 'High Clearance Buffer',
+      params: { targetNodes: 110, connectionRadius: 100, maxNeighbors: 6, obstacleInflation: 14 }
     }
   ],
   'motion-planning-potential-fields': [
@@ -183,6 +212,23 @@ const MODULE_PRESETS: Record<
       params: { lookaheadDistance: 48, vehicleSpeed: 75, wheelbase: 32, pathType: 'scurve' }
     }
   ],
+  'control-lqr': [
+    {
+      label: 'Aggressive Fast Docking (Low R)',
+      params: { qPosition: 3.8, qVelocity: 1.2, rEffort: 0.3, crossCoupling: 0.2 },
+      reset: false
+    },
+    {
+      label: 'Fuel-Minimal Glide (High R)',
+      params: { qPosition: 0.8, qVelocity: 0.6, rEffort: 4.2, crossCoupling: 0.2 },
+      reset: false
+    },
+    {
+      label: 'Strong Coriolis Swirl (ω=0.7)',
+      params: { qPosition: 1.8, qVelocity: 0.9, rEffort: 1.2, crossCoupling: 0.7 },
+      reset: false
+    }
+  ],
   'control-mpc': [
     {
       label: 'Long Horizon Swerve (N=22)',
@@ -234,6 +280,23 @@ const MODULE_PRESETS: Record<
       reset: false
     }
   ],
+  'ai-kmeans-gmm': [
+    {
+      label: 'Soft EM Anisotropic Ellipses',
+      params: { numClusters: 4, pointSpread: 32, softnessTemp: 1.0, stepRate: 0.45 },
+      reset: false
+    },
+    {
+      label: 'Hard K-Means Partition (T=0.2)',
+      params: { numClusters: 4, pointSpread: 32, softnessTemp: 0.2, stepRate: 0.5 },
+      reset: false
+    },
+    {
+      label: 'Over-Clustered 6 Components',
+      params: { numClusters: 6, pointSpread: 35, softnessTemp: 0.9, stepRate: 0.45 },
+      reset: false
+    }
+  ],
   'ai-self-attention': [
     {
       label: 'Sharp Focus (τ=0.2)',
@@ -266,6 +329,7 @@ class RoboVizApp {
   private runner!: SimulationRunner<any, any>;
   private currentSpeed: number = 1;
   private activePresetLabel: string | null = null;
+  private searchQuery: string = '';
 
   private canvas = document.getElementById('sim-canvas') as HTMLCanvasElement;
   private ctx = this.canvas.getContext('2d')!;
@@ -276,6 +340,7 @@ class RoboVizApp {
     this.setupPlaybackControls();
     this.setupKeyboardShortcuts();
     this.setupHashRouting();
+    this.setupCurriculumNavigation();
 
     const initialHash = window.location.hash.slice(1);
     const initialPlugin =
@@ -283,6 +348,48 @@ class RoboVizApp {
     this.selectPlugin(initialPlugin);
 
     window.addEventListener('resize', () => this.renderFrame());
+  }
+
+  private setupCurriculumNavigation() {
+    const searchInput = document.getElementById('catalog-search') as HTMLInputElement | null;
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        this.searchQuery = searchInput.value.trim().toLowerCase();
+        this.renderSidebarCatalog();
+      });
+    }
+
+    const prevBtn = document.getElementById('btn-prev-module');
+    const nextBtn = document.getElementById('btn-next-module');
+    if (prevBtn) {
+      prevBtn.addEventListener('click', () => this.navigateModule(-1));
+    }
+    if (nextBtn) {
+      nextBtn.addEventListener('click', () => this.navigateModule(1));
+    }
+
+    const resetParamsBtn = document.getElementById('btn-reset-params');
+    if (resetParamsBtn) {
+      resetParamsBtn.addEventListener('click', () => this.resetParamsToDefaults());
+    }
+  }
+
+  private navigateModule(delta: number) {
+    const idx = PLUGIN_REGISTRY.findIndex((p) => p.id === this.activePlugin?.id);
+    if (idx === -1) return;
+    const nextIdx = (idx + delta + PLUGIN_REGISTRY.length) % PLUGIN_REGISTRY.length;
+    this.selectPlugin(PLUGIN_REGISTRY[nextIdx]);
+  }
+
+  private resetParamsToDefaults() {
+    if (!this.activePlugin) return;
+    this.activePresetLabel = null;
+    this.updatePresetButtons();
+    const defaults: Record<string, any> = {};
+    for (const ctrl of this.activePlugin.controls) {
+      defaults[ctrl.id] = ctrl.defaultValue;
+    }
+    this.applyPreset(defaults, true);
   }
 
   private setupHashRouting() {
@@ -344,10 +451,24 @@ class RoboVizApp {
     const nav = document.getElementById('catalog-nav')!;
     nav.innerHTML = '';
 
+    const q = this.searchQuery;
+    let totalMatched = 0;
+
     const categories = Object.keys(CATEGORY_LABELS) as AlgorithmCategory[];
     for (const cat of categories) {
-      const pluginsInCat = PLUGIN_REGISTRY.filter((p) => p.category === cat);
+      const catLabel = CATEGORY_LABELS[cat].toLowerCase();
+      const pluginsInCat = PLUGIN_REGISTRY.filter((p) => {
+        if (p.category !== cat) return false;
+        if (!q) return true;
+        return (
+          p.title.toLowerCase().includes(q) ||
+          p.shortDescription.toLowerCase().includes(q) ||
+          p.id.toLowerCase().includes(q) ||
+          catLabel.includes(q)
+        );
+      });
       if (pluginsInCat.length === 0) continue;
+      totalMatched += pluginsInCat.length;
 
       const groupDiv = document.createElement('div');
       groupDiv.className = 'space-y-1';
@@ -367,6 +488,17 @@ class RoboVizApp {
         groupDiv.appendChild(btn);
       }
       nav.appendChild(groupDiv);
+    }
+
+    if (totalMatched === 0) {
+      nav.innerHTML = `<div class="px-3 py-6 text-center text-xs text-slate-500">No algorithms match "${this.searchQuery}"</div>`;
+    }
+
+    const countEl = document.getElementById('catalog-count');
+    if (countEl) {
+      countEl.textContent = q
+        ? `${totalMatched} / ${PLUGIN_REGISTRY.length} Modules`
+        : `${PLUGIN_REGISTRY.length} Modules`;
     }
   }
 
@@ -710,6 +842,12 @@ class RoboVizApp {
       } else if (e.key === 'r' || e.key === 'R') {
         e.preventDefault();
         this.runner.reset();
+      } else if (e.key === '[') {
+        e.preventDefault();
+        this.navigateModule(-1);
+      } else if (e.key === ']') {
+        e.preventDefault();
+        this.navigateModule(1);
       }
     });
   }
