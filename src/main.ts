@@ -8,8 +8,10 @@ declare const katex: any;
 // Parameters that structurally re-initialize the simulation when changed
 const RESET_ON_CHANGE_CONTROLS: Record<string, string[]> = {
   'motion-planning-astar': ['heuristicWeight', 'allowDiagonals'],
+  'motion-planning-hybrid-astar': ['minTurnRadius', 'reversePenalty', 'heuristicWeight', 'allowReverse'],
   'perception-particle-filter': ['particleCount'],
   'perception-icp': ['shape', 'sensorNoise'],
+  'perception-pose-graph-slam': ['odomNoise', 'loopClosureRadius'],
   'motion-planning-potential-fields': ['scenario'],
   'control-pure-pursuit': ['pathType'],
   'ai-self-attention': ['activeTokenIdx', 'temperature', 'projectionDimension', 'causalMask'],
@@ -63,6 +65,20 @@ const MODULE_PRESETS: Record<
       reset: false
     }
   ],
+  'perception-pose-graph-slam': [
+    {
+      label: 'Severe Odometry Drift',
+      params: { odomNoise: 0.10, loopClosureRadius: 75, relaxationRate: 0.25, informationWeight: 6.0 }
+    },
+    {
+      label: 'Missed Loop Closure (r=25)',
+      params: { odomNoise: 0.06, loopClosureRadius: 25, relaxationRate: 0.25, informationWeight: 5.0 }
+    },
+    {
+      label: 'Stiff Loop Snap (Ω=10)',
+      params: { odomNoise: 0.05, loopClosureRadius: 70, relaxationRate: 0.35, informationWeight: 10.0 }
+    }
+  ],
   'motion-planning-astar': [
     {
       label: 'Dijkstra (w=0)',
@@ -113,6 +129,20 @@ const MODULE_PRESETS: Record<
       reset: false
     }
   ],
+  'motion-planning-hybrid-astar': [
+    {
+      label: 'Agile Car + Reverse',
+      params: { minTurnRadius: 40, reversePenalty: 1.4, heuristicWeight: 1.3, allowReverse: true }
+    },
+    {
+      label: 'Wide Turning Radius (R=80)',
+      params: { minTurnRadius: 80, reversePenalty: 1.4, heuristicWeight: 1.3, allowReverse: true }
+    },
+    {
+      label: 'Forward-Only Cruiser',
+      params: { minTurnRadius: 48, reversePenalty: 2.0, heuristicWeight: 1.3, allowReverse: false }
+    }
+  ],
   'control-pid': [
     {
       label: 'Pure P (Gravity Droop)',
@@ -153,6 +183,23 @@ const MODULE_PRESETS: Record<
       params: { lookaheadDistance: 48, vehicleSpeed: 75, wheelbase: 32, pathType: 'scurve' }
     }
   ],
+  'control-mpc': [
+    {
+      label: 'Long Horizon Swerve (N=22)',
+      params: { horizonSteps: 22, trackingWeight: 2.0, controlWeight: 0.7, obstacleWeight: 3.5 },
+      reset: false
+    },
+    {
+      label: 'Myopic Short Horizon (N=6)',
+      params: { horizonSteps: 6, trackingWeight: 2.0, controlWeight: 0.5, obstacleWeight: 2.0 },
+      reset: false
+    },
+    {
+      label: 'High Comfort Smooth (R=2.8)',
+      params: { horizonSteps: 16, trackingWeight: 1.5, controlWeight: 2.8, obstacleWeight: 3.0 },
+      reset: false
+    }
+  ],
   'rl-q-learning': [
     {
       label: 'Fast Training (20x/tick)',
@@ -167,6 +214,23 @@ const MODULE_PRESETS: Record<
     {
       label: 'High Exploration (ε=0.4)',
       params: { alpha: 0.5, gamma: 0.95, epsilon: 0.4, stepsPerTick: 4 },
+      reset: false
+    }
+  ],
+  'rl-cartpole-policy': [
+    {
+      label: 'Stable Policy (Low Noise)',
+      params: { learningRate: 0.12, explorationNoise: 0.05, poleLength: 85, gravity: 12.5 },
+      reset: false
+    },
+    {
+      label: 'High Gravity Perturbation',
+      params: { learningRate: 0.22, explorationNoise: 0.15, poleLength: 70, gravity: 22.5 },
+      reset: false
+    },
+    {
+      label: 'Stochastic Exploration',
+      params: { learningRate: 0.25, explorationNoise: 0.45, poleLength: 90, gravity: 12.5 },
       reset: false
     }
   ],

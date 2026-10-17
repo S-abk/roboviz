@@ -21,29 +21,33 @@ Every variable in the rendered KaTeX governing equation is color-synchronized wi
 
 ---
 
-## Complete 16-Module Curriculum
+## Complete 20-Module Curriculum
 
 ### 1. Sense (Perception & SLAM)
 - **1D Kalman Filter (Linear Gaussian State Estimation)** (`#perception-kalman`)
 - **Monte Carlo Localization (Particle Filter)** (`#perception-particle-filter`) — $N$ weighted particles, Gaussian sensor likelihoods, low-variance resampling, and interactive robot kidnapping.
 - **Iterative Closest Point (ICP) Scan Matching** (`#perception-icp`) — Nearest-neighbor point cloud correspondences and SVD rigid-body alignment.
 - **Log-Odds Occupancy Grid Mapping** (`#perception-occupancy-grid`) — 2D grid raycasting with recursive Bayesian log-odds updates and interactive wall painting.
+- **Pose-Graph SLAM & Loop Closure** (`#perception-pose-graph-slam`) — Odometry drift accumulation along a loop trajectory corrected globally via loop-closure spring constraints and Gauss-Newton relaxation.
 
 ### 2. Plan (Search & Motion Planning)
 - **A\* & Weighted Dijkstra Grid Search** (`#motion-planning-astar`) — Configurable heuristic weight $w \in [0, 3]$ and interactive maze drawing.
 - **RRT & RRT\* Continuous Motion Planner** (`#motion-planning-rrt-star`) — Sampling-based tree expansion with local neighborhood rewiring and asymptotic optimality.
 - **Artificial Potential Fields & Local Minima** (`#motion-planning-potential-fields`) — Attractive/repulsive gradient fields and custom U-shaped local minimum traps.
 - **Dynamic Window Approach (DWA) Local Planner** (`#motion-planning-dwa`) — Velocity-space $(v, \omega)$ circular arc rollouts and multi-objective trajectory scoring.
+- **Hybrid A\* Non-Holonomic Car Planner** (`#motion-planning-hybrid-astar`) — Continuous $(x, y, \theta)$ Ackermann motion-primitive search respecting minimum turning radius and forward/reverse gear costs.
 
 ### 3. Act (Kinematics & Control)
 - **2-Link Analytical Inverse Kinematics** (`#kinematics-2d-ik`) — Law of Cosines elbow-up/elbow-down analytical solver with workspace reachability rings.
 - **N-Link Hyper-Redundant Arm (CCD & Jacobian IK)** (`#kinematics-jacobian-ik`) — 3-to-8 DOF tentacle manipulator using Cyclic Coordinate Descent.
 - **PID Controller & Disturbance Rejection** (`#control-pid`) — Split-screen quadrotor altitude controller with live scrolling oscilloscope and P/I/D effort gauges.
 - **Pure Pursuit Autonomous Path Tracking** (`#control-pure-pursuit`) — Kinematic Ackermann bicycle model tracking closed-loop splines via a dynamic lookahead circle $L_d$.
+- **Model Predictive Control (MPC) Horizon Planner** (`#control-mpc`) — Receding-horizon trajectory optimization over $N$ future steps with proactive obstacle swerving.
 
 ### 4. Learn (Reinforcement Learning & AI)
 - **MDP Value Iteration (Bellman Optimality)** (`#rl-value-iteration`) — Synchronous dynamic programming over a stochastic grid-world.
 - **Tabular Q-Learning & Cliff-Walking Agent** (`#rl-q-learning`) — Directional $Q(s,a)$ action-value triangles and live $\epsilon$-greedy Temporal-Difference updates.
+- **Policy Gradient & Cart-Pole Balancing** (`#rl-cartpole-policy`) — Continuous-state Inverted Pendulum stabilized via online policy gradients with a live $(\theta, \dot{\theta})$ phase-portrait plot.
 - **Transformer Scaled Dot-Product Self-Attention** (`#ai-self-attention`) — Interactive 6-token Query-Key-Value attention arcs, temperature scaling, causal masking, and $6 \times 6$ attention matrix.
 - **Neural Network Decision Boundary & Backpropagation** (`#ai-mlp-backprop`) — Live 2-layer tanh MLP warping a 2D probability field via gradient descent as you click to add training points.
 
