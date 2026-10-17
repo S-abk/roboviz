@@ -40,11 +40,15 @@ const MODULE_PRESETS: Record<
   'perception-icp': [
     {
       label: 'Clean L-Wall Scan',
-      params: { shape: 'l-shape', stepDamping: 0.55, outlierThreshold: 120, sensorNoise: 0.5, showCorrespondences: true }
+      params: { shape: 'corner', dampingFactor: 0.75, maxCorrespondenceDist: 160, sensorNoise: 0 }
     },
     {
-      label: 'Noisy Wave Profile',
-      params: { shape: 'wave', stepDamping: 0.4, outlierThreshold: 80, sensorNoise: 4.5, showCorrespondences: true }
+      label: 'Noisy Stellar Scan',
+      params: { shape: 'star', dampingFactor: 0.6, maxCorrespondenceDist: 150, sensorNoise: 4 }
+    },
+    {
+      label: 'Tight Threshold Trap',
+      params: { shape: 'robot', dampingFactor: 0.75, maxCorrespondenceDist: 50, sensorNoise: 1 }
     }
   ],
   'perception-occupancy-grid': [

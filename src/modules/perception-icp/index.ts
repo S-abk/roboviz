@@ -15,6 +15,8 @@ export interface Correspondence {
   isOutlier: boolean;
 }
 
+export type ICPStatus = 'running' | 'aligned' | 'local-minimum' | 'no-inliers';
+
 export interface ICPState {
   iteration: number;
   referenceCloud: Point2D[]; // Emerald (P)
@@ -25,8 +27,10 @@ export interface ICPState {
   lastDeltaTheta: number;
   lastDeltaT: Point2D;
   rmsError: number;
+  allPointsRmsError: number;
   inlierRatio: number;
   isConverged: boolean;
+  status: ICPStatus;
   shapeType: string;
 }
 
@@ -52,6 +56,9 @@ function generateShapePoints(type: string): Point2D[] {
     }
   } else {
     for (let x = -120; x <= 120; x += 15) points.push({ x, y: 70 });
+    for (let x = -70; x <= 50; x += 15) points.push({ x: -120, y: -40 });
+    points.length = 0;
+    for (let x = -120; x <= 120; x += 15) points.push({ x, y: 70 });
     for (let x = -70; x <= 50; x += 15) points.push({ x, y: -40 });
     for (let y = -40; y <= 70; y += 15) points.push({ x: -120, y });
     for (let y = -40; y <= 70; y += 15) points.push({ x: 120, y });
@@ -66,11 +73,14 @@ function generateShapePoints(type: string): Point2D[] {
 function transformCloud(pts: Point2D[], angle: number, tx: number, ty: number, noise = 0): Point2D[] {
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);
-  return pts.map((p) => {
+  return pts.map((p, idx) => {
     const rx = cos * p.x - sin * p.y + tx;
     const ry = sin * p.x + cos * p.y + ty;
-    const nx = noise > 0 ? (Math.random() - 0.5) * noise * 2 : 0;
-    const ny = noise > 0 ? (Math.random() - 0.5) * noise * 2 : 0;
+    // Deterministic pseudo-random noise so resets are reproducible
+    const n1 = Math.sin(idx * 12.9898 + 4.1414) * 43758.5453;
+    const n2 = Math.cos(idx * 78.233 + 9.151) * 23421.631;
+    const nx = noise > 0 ? ((n1 - Math.floor(n1)) - 0.5) * noise * 2 : 0;
+    const ny = noise > 0 ? ((n2 - Math.floor(n2)) - 0.5) * noise * 2 : 0;
     return { x: rx + nx, y: ry + ny };
   });
 }
@@ -86,12 +96,14 @@ function evaluateAssociations(
   muQ: Point2D;
   muP: Point2D;
   rmsError: number;
+  allPointsRmsError: number;
   inlierRatio: number;
 } {
   const correspondences: Correspondence[] = [];
   const inlierQ: Point2D[] = [];
   const inlierP: Point2D[] = [];
-  let sumSq = 0;
+  let inlierSumSq = 0;
+  let allSumSq = 0;
 
   for (let i = 0; i < Q.length; i++) {
     const q = Q[i];
@@ -106,6 +118,7 @@ function evaluateAssociations(
       }
     }
 
+    allSumSq += bestDist * bestDist;
     const isOutlier = bestDist > maxDist;
     correspondences.push({
       sourceIdx: i,
@@ -119,31 +132,55 @@ function evaluateAssociations(
     if (!isOutlier) {
       inlierQ.push(q);
       inlierP.push(P[bestIdx]);
-      sumSq += bestDist * bestDist;
+      inlierSumSq += bestDist * bestDist;
     }
   }
 
   const inlierCount = inlierQ.length;
   const inlierRatio = Q.length > 0 ? inlierCount / Q.length : 0;
 
+  // Compute centroids of inliers (or fallback to full cloud centroids if no inliers)
   let sumQx = 0;
   let sumQy = 0;
   let sumPx = 0;
   let sumPy = 0;
 
-  for (let i = 0; i < inlierCount; i++) {
-    sumQx += inlierQ[i].x;
-    sumQy += inlierQ[i].y;
-    sumPx += inlierP[i].x;
-    sumPy += inlierP[i].y;
+  if (inlierCount > 0) {
+    for (let i = 0; i < inlierCount; i++) {
+      sumQx += inlierQ[i].x;
+      sumQy += inlierQ[i].y;
+      sumPx += inlierP[i].x;
+      sumPy += inlierP[i].y;
+    }
+  } else {
+    for (let i = 0; i < Q.length; i++) {
+      sumQx += Q[i].x;
+      sumQy += Q[i].y;
+    }
+    for (let j = 0; j < P.length; j++) {
+      sumPx += P[j].x;
+      sumPy += P[j].y;
+    }
   }
 
-  const denom = Math.max(1, inlierCount);
-  const muQ = { x: sumQx / denom, y: sumQy / denom };
-  const muP = { x: sumPx / denom, y: sumPy / denom };
-  const rmsError = Math.sqrt(sumSq / denom);
+  const denomQ = inlierCount > 0 ? inlierCount : Math.max(1, Q.length);
+  const denomP = inlierCount > 0 ? inlierCount : Math.max(1, P.length);
+  const muQ = { x: sumQx / denomQ, y: sumQy / denomQ };
+  const muP = { x: sumPx / denomP, y: sumPy / denomP };
 
-  return { correspondences, inlierQ, inlierP, muQ, muP, rmsError, inlierRatio };
+  const allPointsRmsError = Math.sqrt(allSumSq / Math.max(1, Q.length));
+  const rmsError = inlierCount > 0 ? Math.sqrt(inlierSumSq / inlierCount) : allPointsRmsError;
+
+  return {
+    correspondences,
+    inlierQ,
+    inlierP,
+    muQ,
+    muP,
+    rmsError,
+    allPointsRmsError,
+    inlierRatio
+  };
 }
 
 export const ICPPlugin: AlgorithmPlugin<ICPState, ICPParams> = {
@@ -199,7 +236,7 @@ export const ICPPlugin: AlgorithmPlugin<ICPState, ICPParams> = {
 
   documentation: {
     intuition:
-      'Iterative Closest Point (ICP) estimates the rigid transformation (rotation R and translation t) that registers a newly acquired sensor scan Q with a reference scan P. At each iteration, closest-point associations are formed, centroids are aligned, and the optimal rotation is solved in closed form from the cross-covariance matrix H.',
+      'Iterative Closest Point (ICP) estimates the rigid transformation (rotation R and translation t) that registers a newly acquired sensor scan Q with a reference scan P. At each iteration, closest-point associations are formed, centroids are aligned, and the optimal rotation is solved in closed form from the cross-covariance matrix H. Because ICP relies on local nearest neighbors, large initial misalignments or tight outlier thresholds can trap it in a local minimum.',
     governingEquationLatex:
       '\\arg\\min_{\\textcolor{#0ea5e9}{R}, \\textcolor{#0ea5e9}{t}} \\sum_{i=1}^{M} \\|\\textcolor{#10b981}{p_{\\pi(i)}} - (\\textcolor{#0ea5e9}{R} \\cdot \\textcolor{#38bdf8}{q_i} + \\textcolor{#0ea5e9}{t})\\|^2, \\quad \\textcolor{#f59e0b}{H} = \\sum_{i=1}^{M} (\\textcolor{#38bdf8}{q_i} - \\bar{q})(\\textcolor{#10b981}{p_{\\pi(i)}} - \\bar{p})^T',
     pseudocode: [
@@ -209,7 +246,7 @@ export const ICPPlugin: AlgorithmPlugin<ICPState, ICPParams> = {
       '4. Covariance: Compute cross-covariance matrix H = sum (q_i - mu_q)(p_j - mu_p)^T',
       '5. Optimal Rotation: Solve delta_theta = atan2(H_xy - H_yx, H_xx + H_yy)',
       '6. Optimal Translation: Compute delta_t = mu_p - R(delta_theta) * mu_q',
-      '7. Update: Transform Q <- alpha * (R * Q + delta_t) and compute residual RMS error'
+      '7. Update: Transform Q <- alpha * (R * Q + delta_t) and verify global RMS alignment'
     ]
   },
 
@@ -244,14 +281,16 @@ export const ICPPlugin: AlgorithmPlugin<ICPState, ICPParams> = {
       lastDeltaTheta: initialAngle,
       lastDeltaT: { x: initialTx, y: initialTy },
       rmsError: assoc.rmsError,
+      allPointsRmsError: assoc.allPointsRmsError,
       inlierRatio: assoc.inlierRatio,
       isConverged: false,
+      status: 'running',
       shapeType
     };
   },
 
   step(currentState: ICPState, params: ICPParams) {
-    if (currentState.isConverged) {
+    if (currentState.status !== 'running') {
       return {
         nextState: currentState,
         isComplete: true,
@@ -264,7 +303,7 @@ export const ICPPlugin: AlgorithmPlugin<ICPState, ICPParams> = {
     const maxDist = params.maxCorrespondenceDist;
     const damping = params.dampingFactor;
 
-    const { inlierQ, inlierP, muQ, muP, inlierRatio, correspondences } = evaluateAssociations(
+    const { inlierQ, inlierP, muQ, muP, correspondences } = evaluateAssociations(
       P,
       Q,
       maxDist
@@ -277,7 +316,8 @@ export const ICPPlugin: AlgorithmPlugin<ICPState, ICPParams> = {
           ...currentState,
           iteration: currentState.iteration + 1,
           correspondences,
-          isConverged: true
+          isConverged: false,
+          status: 'no-inliers'
         },
         isComplete: true,
         activePseudocodeLine: 1
@@ -323,13 +363,31 @@ export const ICPPlugin: AlgorithmPlugin<ICPState, ICPParams> = {
     });
 
     const postAssoc = evaluateAssociations(P, newQ, maxDist);
-    const transMag = Math.hypot(shiftX, shiftY);
     const nextIter = currentState.iteration + 1;
 
-    const isConverged =
-      (Math.abs(rawDeltaTheta) < 0.002 && Math.hypot(muP.x - muQ.x, muP.y - muQ.y) < 0.4) ||
-      nextIter >= 50 ||
-      (nextIter > 3 && Math.abs(postAssoc.rmsError - currentState.rmsError) < 0.005);
+    const stepMotionSettled =
+      Math.abs(rawDeltaTheta) < 0.0025 &&
+      Math.hypot(muP.x - muQ.x, muP.y - muQ.y) < 0.45;
+
+    const rmsImprovement = Math.abs(postAssoc.allPointsRmsError - currentState.allPointsRmsError);
+    const rmsTolerance = Math.max(4.0, (params.sensorNoise || 0) * 1.85 + 2.0);
+
+    // True global alignment requires high inlier coverage AND low full-cloud RMS error
+    const isTrulyAligned =
+      postAssoc.inlierRatio >= 0.85 &&
+      postAssoc.allPointsRmsError <= rmsTolerance &&
+      stepMotionSettled;
+
+    // Stalled in a local minimum if the step motion vanishes or max iterations reached without true alignment
+    const isStalledInLocalMin =
+      !isTrulyAligned &&
+      ((nextIter > 5 && stepMotionSettled && rmsImprovement < 0.01) || nextIter >= 80);
+
+    const status: ICPStatus = isTrulyAligned
+      ? 'aligned'
+      : isStalledInLocalMin
+      ? 'local-minimum'
+      : 'running';
 
     return {
       nextState: {
@@ -342,12 +400,14 @@ export const ICPPlugin: AlgorithmPlugin<ICPState, ICPParams> = {
         lastDeltaTheta: deltaTheta,
         lastDeltaT: { x: shiftX, y: shiftY },
         rmsError: postAssoc.rmsError,
-        inlierRatio,
-        isConverged,
+        allPointsRmsError: postAssoc.allPointsRmsError,
+        inlierRatio: postAssoc.inlierRatio,
+        isConverged: isTrulyAligned,
+        status,
         shapeType: currentState.shapeType
       },
-      isComplete: isConverged,
-      activePseudocodeLine: isConverged ? 6 : nextIter % 6
+      isComplete: status !== 'running',
+      activePseudocodeLine: status !== 'running' ? 6 : nextIter % 6
     };
   },
 
@@ -359,13 +419,33 @@ export const ICPPlugin: AlgorithmPlugin<ICPState, ICPParams> = {
     const dx = event.worldX;
     const dy = event.worldY;
 
+    // Compute geometric centroid of full source cloud Q
+    let cx = 0;
+    let cy = 0;
+    for (const q of currentState.sourceCloud) {
+      cx += q.x;
+      cy += q.y;
+    }
+    cx /= Math.max(1, currentState.sourceCloud.length);
+    cy /= Math.max(1, currentState.sourceCloud.length);
+
     let perturbedQ: Point2D[];
     if (event.shiftKey) {
-      const angle = Math.atan2(dy, dx) * 0.25;
-      perturbedQ = transformCloud(currentState.sourceCloud, angle, 0, 0);
+      // Rotate smoothly around source cloud centroid Q
+      const dTheta = 0.14;
+      const cos = Math.cos(dTheta);
+      const sin = Math.sin(dTheta);
+      perturbedQ = currentState.sourceCloud.map((p) => {
+        const rx = p.x - cx;
+        const ry = p.y - cy;
+        return {
+          x: cx + cos * rx - sin * ry,
+          y: cy + sin * rx + cos * ry
+        };
+      });
     } else {
-      const shiftX = (dx - currentState.centroidQ.x) * 0.45;
-      const shiftY = (dy - currentState.centroidQ.y) * 0.45;
+      const shiftX = (dx - cx) * 0.55;
+      const shiftY = (dy - cy) * 0.55;
       perturbedQ = currentState.sourceCloud.map((p) => ({
         x: p.x + shiftX,
         y: p.y + shiftY
@@ -385,17 +465,19 @@ export const ICPPlugin: AlgorithmPlugin<ICPState, ICPParams> = {
       centroidP: assoc.muP,
       centroidQ: assoc.muQ,
       rmsError: assoc.rmsError,
+      allPointsRmsError: assoc.allPointsRmsError,
       inlierRatio: assoc.inlierRatio,
       isConverged: false,
+      status: 'running',
       iteration: 0
     };
   },
 
   getMetrics(currentState: ICPState): MetricReadout[] {
     const errorColor =
-      currentState.rmsError < 3.0
+      currentState.allPointsRmsError < 4.5
         ? 'emerald'
-        : currentState.rmsError < 15.0
+        : currentState.allPointsRmsError < 18.0
         ? 'amber'
         : 'rose';
 
@@ -405,8 +487,8 @@ export const ICPPlugin: AlgorithmPlugin<ICPState, ICPParams> = {
     return [
       {
         id: 'rms',
-        label: 'RMS Error',
-        value: currentState.rmsError.toFixed(2),
+        label: 'Full-Cloud RMS Error',
+        value: currentState.allPointsRmsError.toFixed(2),
         unit: ' px',
         color: errorColor
       },
@@ -414,7 +496,7 @@ export const ICPPlugin: AlgorithmPlugin<ICPState, ICPParams> = {
         id: 'inliers',
         label: 'Inlier Ratio',
         value: `${(currentState.inlierRatio * 100).toFixed(0)}%`,
-        color: currentState.inlierRatio > 0.8 ? 'emerald' : 'amber'
+        color: currentState.inlierRatio >= 0.85 ? 'emerald' : currentState.inlierRatio >= 0.4 ? 'amber' : 'rose'
       },
       {
         id: 'deltaTheta',
@@ -452,7 +534,7 @@ export const ICPPlugin: AlgorithmPlugin<ICPState, ICPParams> = {
         ctx.moveTo(corr.sourcePt.x - 3, corr.sourcePt.y - 3);
         ctx.lineTo(corr.sourcePt.x + 3, corr.sourcePt.y + 3);
         ctx.moveTo(corr.sourcePt.x + 3, corr.sourcePt.y - 3);
-        ctx.lineTo(corr.sourcePt.x - 3, corr.sourcePt.y + 3);
+        ctx.lineTo(corr.sourcePt.x - 3, corr.sourcePt.y - 3);
         ctx.stroke();
       } else {
         ctx.strokeStyle = 'rgba(245, 158, 11, 0.55)';
@@ -525,18 +607,40 @@ export const ICPPlugin: AlgorithmPlugin<ICPState, ICPParams> = {
     ctx.lineTo(currentState.centroidP.x, currentState.centroidP.y);
     ctx.stroke();
 
-    // 5. Convergence Badge
-    if (currentState.isConverged) {
+    // 5. Status Banner
+    if (currentState.status === 'aligned') {
       ctx.font = 'bold 12px sans-serif';
       ctx.fillStyle = '#10b981';
       ctx.textAlign = 'center';
-      ctx.fillText(`Scan Aligned (Iter ${currentState.iteration})`, 0, -140);
+      ctx.fillText(
+        `✓ Scan Aligned (Iter ${currentState.iteration}, RMS ${currentState.allPointsRmsError.toFixed(1)} px)`,
+        0,
+        -140
+      );
+    } else if (currentState.status === 'local-minimum') {
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillStyle = '#f59e0b';
+      ctx.textAlign = 'center';
+      ctx.fillText(
+        `⚠ Trapped in Local Minimum (RMS ${currentState.allPointsRmsError.toFixed(1)} px) — Drag Q closer or raise Threshold`,
+        0,
+        -140
+      );
+    } else if (currentState.status === 'no-inliers') {
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillStyle = '#f43f5e';
+      ctx.textAlign = 'center';
+      ctx.fillText(
+        `✕ Too Few Inliers (< 3) — Drag Scan Q closer to P or increase Max Matching Distance`,
+        0,
+        -140
+      );
     }
 
     ctx.font = '10px monospace';
     ctx.fillStyle = '#64748b';
     ctx.textAlign = 'center';
-    ctx.fillText('Drag on canvas to misalign scan Q; hold Shift to rotate', 0, 165);
+    ctx.fillText('Drag on canvas to translate scan Q; Shift+Click/Drag to rotate around centroid', 0, 165);
 
     ctx.restore();
   }
